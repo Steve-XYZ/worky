@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="src/Worky.Core/Worky.Core.csproj" />
+  <Project Path="src/Worky.Cli/Worky.Cli.csproj" />
+  <Project Path="tests/Worky.Core.Tests/Worky.Core.Tests.csproj" />
+</Solution>

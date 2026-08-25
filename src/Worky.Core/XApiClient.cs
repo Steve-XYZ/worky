@@ -40,7 +40,8 @@ public sealed class XApiClient(HttpClient http, IAuthTokenProvider authToken, Ap
     }
 
     public async Task<IReadOnlyList<PostWithAuthor>> ScanRecentAsync(
-        string query, int maxPosts, CancellationToken ct = default)
+        string query, int maxPosts, CancellationToken ct = default,
+        Action<IReadOnlyList<PostWithAuthor>>? onPage = null)
     {
         var results = new List<PostWithAuthor>();
         string? next = null;
@@ -49,6 +50,7 @@ public sealed class XApiClient(HttpClient http, IAuthTokenProvider authToken, Ap
             var remaining = maxPosts - results.Count;
             var page = await SearchRecentAsync(query, Math.Clamp(remaining, 10, 100), next, ct);
             results.AddRange(page.Items);
+            onPage?.Invoke(results.ToArray());
             next = page.NextToken;
         }
         while (next is not null && results.Count < maxPosts);

@@ -9,7 +9,7 @@ const string DefaultQuery =
 const string Usage = """
     Usage:
       worky login
-      worky scan [--query <query>] [--limit <posts>]
+      worky scan [--query <query>] [--limit <posts>] [--targeted] [--interests <terms>] [--max-authors <count>]
       worky sync-graph [--max-pages <pages>] [--refresh-graph]
     """;
 
@@ -44,10 +44,14 @@ static int UnknownArgument(string name)
 
 async Task<int> RunScanAsync(string[] args)
 {
-    const string ScanUsage = "Usage: worky scan [--query <query>] [--limit <posts>]";
+    const string ScanUsage =
+        "Usage: worky scan [--query <query>] [--limit <posts>] [--targeted] [--interests <terms>] [--max-authors <count>]";
 
     string? query = null;
+    string? interestsRaw = null;
     int limit = 100;
+    int maxAuthors = TargetedScanRequest.DefaultMaxAuthors;
+    var targeted = false;
     for (var i = 0; i < args.Length; i++)
     {
         switch (args[i])
@@ -57,11 +61,52 @@ async Task<int> RunScanAsync(string[] args)
                 break;
             case "--limit" or "-l" when i + 1 < args.Length && int.TryParse(args[++i], out limit):
                 break;
+            case "--targeted":
+                targeted = true;
+                break;
+            case "--interests" or "-i" when i + 1 < args.Length:
+                interestsRaw = args[++i];
+                break;
+            case "--max-authors" or "-m" when i + 1 < args.Length && int.TryParse(args[++i], out maxAuthors):
+                break;
             default:
                 Console.WriteLine($"Unknown argument '{args[i]}'.");
                 Console.WriteLine(ScanUsage);
                 return 2;
         }
+    }
+
+    if (targeted && query is not null)
+    {
+        Console.WriteLine("--query cannot be combined with --targeted.");
+        Console.WriteLine(ScanUsage);
+        return 2;
+    }
+
+    List<string>? interests = null;
+    if (interestsRaw is not null)
+    {
+        interests = interestsRaw.Split(',').Select(t => t.Trim()).Where(t => t.Length > 0).ToList();
+        if (interests.Count == 0)
+        {
+            Console.WriteLine("--interests must list at least one comma-separated term.");
+            Console.WriteLine(ScanUsage);
+            return 2;
+        }
+    }
+
+    if (maxAuthors < 1)
+    {
+        Console.WriteLine("--max-authors must be at least 1.");
+        Console.WriteLine(ScanUsage);
+        return 2;
+    }
+
+    if (targeted && interests is not null && !TargetedScanQueryBuilder.TryValidateTerms(interests, out var termsError))
+    {
+        Console.WriteLine(termsError);
+        Console.WriteLine(ScanUsage);
+        return 2;
     }
 
     var token = Environment.GetEnvironmentVariable("WORKY_BEARER_TOKEN");
@@ -76,12 +121,51 @@ async Task<int> RunScanAsync(string[] args)
         using var http = new HttpClient { BaseAddress = new Uri("https://api.x.com/2/") };
         var client = new XApiClient(http, new StaticAuthTokenProvider(token));
         var classifier = new JobSignalClassifier();
+        var snapshot = new GraphStateFileStore().Load();
 
-        Console.WriteLine($"Scanning recent posts for job signals (limit {limit})...");
-        var posts = await client.ScanRecentAsync(query ?? DefaultQuery, limit);
-        var leads = LeadRanker.Rank(posts.Select(p => new JobLead(p.Post, p.Author, classifier.Classify(p.Post))))
-            .Where(l => l.Signal.IsMatch)
-            .ToList();
+        IReadOnlyList<PostWithAuthor> posts;
+        IReadOnlyList<JobLead> leads;
+        if (targeted)
+        {
+            Console.WriteLine(
+                $"Scanning your network for job signals (top {maxAuthors} authors by interest match, limit {limit})...");
+            var service = new TargetedScanService(client, new GraphStateFileStore(), SystemClock.Instance);
+            var result = await service.RunAsync(new TargetedScanRequest
+            {
+                MaxAuthors = maxAuthors,
+                Terms = interests,
+                Limit = limit,
+            });
+
+            switch (result)
+            {
+                case TargetedScanResult.MissingSnapshot:
+                    Console.Error.WriteLine(
+                        "No follow-graph snapshot found. Run 'worky sync-graph' first to scan your network.");
+                    return 2;
+                case TargetedScanResult.StaleSnapshot stale:
+                    Console.Error.WriteLine(
+                        $"Your follow-graph snapshot is {stale.Age.TotalDays:0} days old "
+                        + $"(fresh for {GraphState.FreshnessTtl.TotalDays:0}). Run 'worky sync-graph' to refresh it.");
+                    return 2;
+                case TargetedScanResult.Completed completed:
+                    posts = completed.Posts;
+                    leads = completed.Leads;
+                    break;
+                default:
+                    return 2;
+            }
+        }
+        else
+        {
+            Console.WriteLine($"Scanning recent posts for job signals (limit {limit})...");
+            posts = await client.ScanRecentAsync(query ?? DefaultQuery, limit);
+            leads = LeadRanker.Rank(NetworkBoost.Apply(
+                    posts.Select(p => new JobLead(p.Post, p.Author, classifier.Classify(p.Post))).ToList(),
+                    snapshot))
+                .Where(l => l.Signal.IsMatch)
+                .ToList();
+        }
 
         Console.WriteLine($"Read {posts.Count} posts, {leads.Count} with job signals.");
         foreach (var lead in leads)
@@ -107,6 +191,11 @@ async Task<int> RunScanAsync(string[] args)
     {
         Console.Error.WriteLine(ex.Message);
         return 1;
+    }
+    catch (ArgumentException ex)
+    {
+        Console.Error.WriteLine(ex.Message);
+        return 2;
     }
 }
 

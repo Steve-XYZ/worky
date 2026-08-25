@@ -146,6 +146,7 @@ public sealed class XApiClient(HttpClient http, IAuthTokenProvider authToken, Ap
             return null;
         var header = response.Headers.NonValidated["x-rate-limit-reset"];
         return long.TryParse(header.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var epoch)
+            && epoch > 0
             ? DateTimeOffset.FromUnixTimeSeconds(epoch)
             : null;
     }

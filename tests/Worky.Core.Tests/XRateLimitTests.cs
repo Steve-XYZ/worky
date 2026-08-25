@@ -66,7 +66,9 @@ public class XRateLimitTests
     [InlineData("soon")]
     [InlineData("12.5")]
     [InlineData("")]
-    public async Task GarbageResetHeaderYieldsNullResetAt(string header)
+    [InlineData("0")]
+    [InlineData("-5")]
+    public async Task InvalidResetHeaderYieldsNullResetAt(string header)
     {
         var client = Client(RateLimited(header), out _);
 

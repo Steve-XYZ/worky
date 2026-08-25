@@ -66,13 +66,15 @@ public static class LoginCommand
             var me = await api.GetMeAsync(ct);
 
             var now = SystemClock.Instance.UtcNow;
-            new AuthFileStore().Save(new AuthSession(
-                token.AccessToken,
-                token.RefreshToken,
-                now.AddSeconds(token.ExpiresIn),
-                token.Scope,
-                me.Id,
-                me.UserName));
+            new AuthFileStore().Save(new AuthSession
+            {
+                AccessToken = token.AccessToken,
+                RefreshToken = token.RefreshToken,
+                ExpiresAt = now.AddSeconds(token.ExpiresIn),
+                Scope = token.Scope,
+                UserId = me.Id,
+                UserName = me.UserName,
+            });
 
             Console.WriteLine($"Logged in as @{me.UserName}. Credentials stored in {AuthFilePath()}.");
             return 0;

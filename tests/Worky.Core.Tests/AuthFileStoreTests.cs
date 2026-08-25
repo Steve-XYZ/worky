@@ -12,13 +12,15 @@ public class AuthFileStoreTests : IDisposable
         if (Directory.Exists(_dir)) Directory.Delete(_dir, recursive: true);
     }
 
-    static AuthSession Sample() => new(
-        "access-1",
-        "refresh-1",
-        new DateTimeOffset(2026, 8, 24, 12, 0, 0, TimeSpan.Zero),
-        "tweet.read users.read",
-        "u-1",
-        "alice");
+    static AuthSession Sample() => new()
+    {
+        AccessToken = "access-1",
+        RefreshToken = "refresh-1",
+        ExpiresAt = new DateTimeOffset(2026, 8, 24, 12, 0, 0, TimeSpan.Zero),
+        Scope = "tweet.read users.read",
+        UserId = "u-1",
+        UserName = "alice",
+    };
 
     [Fact]
     public void RoundTripsAllSessionFields()
@@ -38,6 +40,20 @@ public class AuthFileStoreTests : IDisposable
 
         Directory.CreateDirectory(_dir);
         File.WriteAllText(Path.Combine(_dir, "auth.json"), "{ not json");
+        Assert.Null(store.Load());
+    }
+
+    [Fact]
+    public void LoadReturnsNullWhenRequiredPropertiesAreMissing()
+    {
+        var store = new AuthFileStore(_dir);
+        Directory.CreateDirectory(_dir);
+        var path = Path.Combine(_dir, "auth.json");
+
+        File.WriteAllText(path, "{}");
+        Assert.Null(store.Load());
+
+        File.WriteAllText(path, """{"access_token":"a","refresh_token":"r"}""");
         Assert.Null(store.Load());
     }
 

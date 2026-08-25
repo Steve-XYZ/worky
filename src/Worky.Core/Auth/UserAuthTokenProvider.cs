@@ -12,16 +12,25 @@ public sealed class UserAuthTokenProvider(
     IClock clock) : IAuthTokenProvider
 {
     static readonly TimeSpan Skew = TimeSpan.FromSeconds(30);
+    readonly SemaphoreSlim _mutex = new(1, 1);
 
     public async Task<string> GetTokenAsync(CancellationToken ct = default)
     {
-        var session = store.Load()
-            ?? throw new RefreshFailedException($"No stored X login found. {RefreshFailedException.ReLoginHint}");
+        await _mutex.WaitAsync(ct);
+        try
+        {
+            var session = store.Load()
+                ?? throw new RefreshFailedException($"No stored X login found. {RefreshFailedException.ReLoginHint}");
 
-        if (session.ExpiresAt > clock.UtcNow + Skew)
-            return session.AccessToken;
+            if (session.ExpiresAt > clock.UtcNow + Skew)
+                return session.AccessToken;
 
-        return await RefreshAsync(session, ct);
+            return await RefreshAsync(session, ct);
+        }
+        finally
+        {
+            _mutex.Release();
+        }
     }
 
     async Task<string> RefreshAsync(AuthSession session, CancellationToken ct)

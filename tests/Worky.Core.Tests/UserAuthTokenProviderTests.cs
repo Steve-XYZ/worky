@@ -56,13 +56,15 @@ public class UserAuthTokenProviderTests
         return (provider, store, endpoint);
     }
 
-    static AuthSession SessionExpiring(DateTimeOffset expiresAt) => new(
-        "stale-access",
-        "rotating-refresh",
-        expiresAt,
-        "tweet.read users.read",
-        "u-1",
-        "alice");
+    static AuthSession SessionExpiring(DateTimeOffset expiresAt) => new()
+    {
+        AccessToken = "stale-access",
+        RefreshToken = "rotating-refresh",
+        ExpiresAt = expiresAt,
+        Scope = "tweet.read users.read",
+        UserId = "u-1",
+        UserName = "alice",
+    };
 
     [Fact]
     public async Task ReturnsStoredAccessTokenWithoutRefreshingWhenFresh()
@@ -121,5 +123,20 @@ public class UserAuthTokenProviderTests
 
         Assert.Contains(RefreshFailedException.ReLoginHint, ex.Message);
         Assert.Equal(0, endpoint.RefreshCount);
+    }
+
+    [Fact]
+    public async Task ConcurrentCallsShareASingleRotation()
+    {
+        var store = new FakeStore { Session = SessionExpiring(Now.AddMinutes(-1)) };
+        var endpoint = new FakeTokenEndpoint();
+        var provider = new UserAuthTokenProvider(store, endpoint, new FakeClock(Now));
+
+        var tokens = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => provider.GetTokenAsync()));
+
+        Assert.Equal(1, endpoint.RefreshCount);
+        Assert.All(tokens, t => Assert.Equal("fresh-access", t));
+        Assert.Equal("next-refresh", store.Session!.RefreshToken);
+        Assert.Equal(1, store.SaveCount);
     }
 }

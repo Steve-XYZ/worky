@@ -69,4 +69,22 @@ public class AuthFileStoreTests : IDisposable
             UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute,
             File.GetUnixFileMode(_dir));
     }
+
+    [Fact]
+    public void OpenTempHandleIsRestrictedBeforeContentIsWritten()
+    {
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS() && !OperatingSystem.IsFreeBSD()) return;
+        Directory.CreateDirectory(_dir);
+        var path = Path.Combine(_dir, "probe.tmp");
+
+        using (var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+        {
+            FilePermissions.ApplyOwnerOnlyToFile(stream.SafeFileHandle);
+
+            Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(path));
+            stream.Write(new byte[] { 1, 2, 3 });
+        }
+
+        Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(path));
+    }
 }

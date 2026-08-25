@@ -10,6 +10,12 @@ public static class FilePermissions
         File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
     }
 
+    public static void ApplyOwnerOnlyToFile(SafeFileHandle handle)
+    {
+        if (OperatingSystem.IsWindows()) return;
+        File.SetUnixFileMode(handle, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+    }
+
     public static void ApplyOwnerOnlyToDirectory(string path)
     {
         if (OperatingSystem.IsWindows()) return;

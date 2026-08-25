@@ -40,8 +40,11 @@ public sealed class AuthFileStore : IAuthSessionStore
         var tempPath = Path.Combine(_directory, $".auth.json.{Guid.NewGuid():N}.tmp");
         try
         {
-            File.WriteAllText(tempPath, JsonSerializer.Serialize(session, JsonOptions));
-            FilePermissions.ApplyOwnerOnlyToFile(tempPath);
+            using (var temp = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                FilePermissions.ApplyOwnerOnlyToFile(temp.SafeFileHandle);
+                JsonSerializer.Serialize(temp, session, JsonOptions);
+            }
             File.Move(tempPath, _path, overwrite: true);
             FilePermissions.ApplyOwnerOnlyToFile(_path);
         }

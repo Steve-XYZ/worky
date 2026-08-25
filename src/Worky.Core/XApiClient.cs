@@ -23,7 +23,7 @@ public sealed class XRateLimitException(string endpoint, DateTimeOffset? resetAt
     public DateTimeOffset? ResetAt { get; } = resetAt;
 }
 
-public sealed class XApiClient(HttpClient http, IAuthTokenProvider authToken)
+public sealed class XApiClient(HttpClient http, IAuthTokenProvider authToken, ApiReadTracker? reads = null)
 {
     const string TweetFields = "created_at,author_id,entities";
     const string UserFields = "username,name,description";
@@ -35,6 +35,7 @@ public sealed class XApiClient(HttpClient http, IAuthTokenProvider authToken)
 
         var payload = await response.Content.ReadFromJsonAsync<MeResponseDto>(ApiJson.Options, ct);
         var user = payload?.Data ?? throw new XApiException((int)response.StatusCode, "empty users/me response");
+        reads?.CountUsers(1);
         return new XUser(user.Id, user.Username, user.Name, user.Description);
     }
 
@@ -81,6 +82,7 @@ public sealed class XApiClient(HttpClient http, IAuthTokenProvider authToken)
                 new Post(t.Id, t.AuthorId!, t.Text, t.CreatedAt, ExtractUrls(t.Entities)),
                 users[t.AuthorId!]))
             .ToList();
+        reads?.CountPosts(items.Count);
 
         return new SearchPage(items, payload?.Meta?.NextToken);
     }
@@ -107,8 +109,11 @@ public sealed class XApiClient(HttpClient http, IAuthTokenProvider authToken)
             await EnsureSuccessAsync(response, pathAndQuery, ct);
 
             var payload = await response.Content.ReadFromJsonAsync<UsersResponseDto>(ApiJson.Options, ct);
-            results.AddRange((payload?.Data ?? [])
-                .Select(u => new XUser(u.Id, u.Username, u.Name, u.Description)));
+            var pageUsers = (payload?.Data ?? [])
+                .Select(u => new XUser(u.Id, u.Username, u.Name, u.Description))
+                .ToList();
+            reads?.CountUsers(pageUsers.Count);
+            results.AddRange(pageUsers);
             cursor = payload?.Meta?.NextToken;
             onPage?.Invoke(page, results.Count);
         }

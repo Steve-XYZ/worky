@@ -1,5 +1,3 @@
-using System.Text.RegularExpressions;
-
 namespace Worky.Core;
 
 public static class TargetedScanQueryBuilder
@@ -16,12 +14,11 @@ public static class TargetedScanQueryBuilder
         "join our team",
     ];
 
-    static readonly Regex OperatorToken = new(@"^[()]*(-?[A-Za-z]+:|OR)[()]*$", RegexOptions.Compiled);
-
     public static int CountOperators(string query) =>
-        query.Split(' ', StringSplitOptions.RemoveEmptyEntries).Count(OperatorTokenMatches);
-
-    static bool OperatorTokenMatches(string token) => OperatorToken.IsMatch(token);
+        query
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Select(token => token.Trim('(', ')'))
+            .Count(token => token == "OR" || token.Contains(':'));
 
     public static string BuildQuery(IReadOnlyList<string> userNames, IReadOnlyList<string> terms)
     {

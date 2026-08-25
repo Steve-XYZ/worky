@@ -95,6 +95,13 @@ async Task<int> RunScanAsync(string[] args)
         }
     }
 
+    if (limit < 1)
+    {
+        Console.WriteLine("--limit must be at least 1.");
+        Console.WriteLine(ScanUsage);
+        return 2;
+    }
+
     if (maxAuthors < 1)
     {
         Console.WriteLine("--max-authors must be at least 1.");

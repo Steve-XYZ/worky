@@ -53,14 +53,12 @@ public class CostEstimatorTests
         Assert.Equal(CostEstimator.ForSyncGraph(1).FloorUsd, CostEstimator.ForSyncGraph(10).FloorUsd);
     }
 
-    [Theory]
-    [InlineData(0)]
-    [InlineData(-3)]
-    public void NonPositiveLimitsClampToZeroCost(int limit)
+    [Fact]
+    public void SmallestAcceptedLimitPricesOnePost()
     {
-        var scan = CostEstimator.ForScan(limit);
+        var scan = CostEstimator.ForScan(1);
 
-        Assert.Equal(0.000m, scan.FloorUsd);
-        Assert.Equal(0.000m, scan.CeilingUsd);
+        Assert.Equal(0.001m, scan.FloorUsd);
+        Assert.Equal(0.005m, scan.CeilingUsd);
     }
 }

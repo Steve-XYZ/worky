@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
-using System.Text;
 using Worky.Core;
 using Worky.Core.Auth;
 
@@ -35,10 +34,17 @@ public static class LoginCommand
         Console.WriteLine("Waiting for the callback...");
 
         string? code;
-        var callback = await AwaitCallbackAsync(listener, state, redirectUri, ct);
+        var callback = await LoginCallback.AwaitAsync(listener, state, ct);
         if (callback.Error is not null)
         {
-            Console.Error.WriteLine($"X reported an authorization error: {callback.Error}");
+            Console.Error.WriteLine(callback.Error switch
+            {
+                LoginCallback.TimeoutError =>
+                    "Timed out waiting for the X authorization callback; run 'worky login' to try again.",
+                LoginCallback.TooManyConnectionsError =>
+                    "Too many stray connections arrived on the callback port; run 'worky login' to try again.",
+                _ => $"X reported an authorization error: {callback.Error}",
+            });
             PrintRedirectHint(redirectUri);
             return 1;
         }
@@ -83,73 +89,6 @@ public static class LoginCommand
             PrintRedirectHint(redirectUri);
             return 1;
         }
-    }
-
-    static async Task<(string? Code, string? Error)> AwaitCallbackAsync(
-        TcpListener listener, string expectedState, string redirectUri, CancellationToken ct)
-    {
-        using var tcp = await listener.AcceptTcpClientAsync(ct);
-        await using var stream = tcp.GetStream();
-
-        var requestLine = await ReadRequestLineAsync(stream, ct);
-        var stateMatches = GetQueryValue(requestLine, "state") == expectedState;
-        var error = GetQueryValue(requestLine, "error_description") ?? GetQueryValue(requestLine, "error");
-        var code = GetQueryValue(requestLine, "code");
-
-        await WriteCallbackPageAsync(stream, success: error is null && code is not null && stateMatches, ct);
-
-        if (!stateMatches)
-        {
-            Console.Error.WriteLine("Callback state did not match the authorization request; rejecting it.");
-            return (null, "state_mismatch");
-        }
-        return (code, error);
-    }
-
-    static async Task<string> ReadRequestLineAsync(NetworkStream stream, CancellationToken ct)
-    {
-        var buffer = new byte[1024];
-        var received = new StringBuilder();
-        while (received.Length < 8192)
-        {
-            var read = await stream.ReadAsync(buffer, ct);
-            if (read == 0) break;
-            received.Append(Encoding.ASCII.GetString(buffer, 0, read));
-            var line = received.ToString();
-            var end = line.IndexOf("\r\n", StringComparison.Ordinal);
-            if (end >= 0) return line[..end];
-        }
-        return received.ToString();
-    }
-
-    static async Task WriteCallbackPageAsync(NetworkStream stream, bool success, CancellationToken ct)
-    {
-        var body = success
-            ? "<html><body><h2>Login complete</h2><p>You can close this window.</p></body></html>"
-            : "<html><body><h2>Login failed</h2><p>Check the terminal running worky.</p></body></html>";
-        var head =
-            "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\n"
-            + $"Content-Length: {Encoding.UTF8.GetByteCount(body)}\r\n\r\n";
-        await stream.WriteAsync(Encoding.UTF8.GetBytes(head + body), ct);
-    }
-
-    static string? GetQueryValue(string requestLine, string name)
-    {
-        var parts = requestLine.Split(' ', 3);
-        if (parts.Length < 2) return null;
-        var target = parts[1];
-        var queryStart = target.IndexOf('?');
-        if (queryStart < 0) return null;
-
-        foreach (var pair in target[(queryStart + 1)..].Split('&'))
-        {
-            var eq = pair.IndexOf('=');
-            var key = eq < 0 ? pair : pair[..eq];
-            if (key != name) continue;
-            var raw = eq < 0 ? "" : pair[(eq + 1)..];
-            return Uri.UnescapeDataString(raw.Replace('+', ' '));
-        }
-        return null;
     }
 
     static void TryOpenBrowser(string url)

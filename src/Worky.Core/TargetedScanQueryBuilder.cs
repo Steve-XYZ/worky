@@ -4,6 +4,7 @@ public static class TargetedScanQueryBuilder
 {
     public const int MaxQueryChars = 480;
     public const int MaxQueryOperators = 20;
+    public const int MaxAuthorHandleLength = 15;
 
     public static readonly IReadOnlyList<string> DefaultTerms =
     [
@@ -57,6 +58,38 @@ public static class TargetedScanQueryBuilder
         return query.Length <= MaxQueryChars && CountOperators(query) <= MaxQueryOperators;
     }
 
+    public static bool TryValidateTerms(IEnumerable<string> terms, out string? error)
+    {
+        var prepared = terms
+            .Select(t => t.Trim())
+            .Where(t => t.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (prepared.Count == 0)
+        {
+            error = "At least one search term is required.";
+            return false;
+        }
+
+        var offender = prepared.FirstOrDefault(t => t.Contains('"') || t.Contains(':'));
+        if (offender is not null)
+        {
+            error = $"Search term '{offender}' must not contain quotes or ':' operators.";
+            return false;
+        }
+
+        if (!FitsWithinBudgets([new string('a', MaxAuthorHandleLength)], prepared))
+        {
+            error = $"Combined search terms exceed the {MaxQueryChars}-character "
+                + $"or {MaxQueryOperators}-operator query budget.";
+            return false;
+        }
+
+        error = null;
+        return true;
+    }
+
     static string RenderTerms(IReadOnlyList<string> terms) =>
         "(" + string.Join(" OR ", terms.Select(RenderTerm)) + ")";
 
@@ -73,8 +106,10 @@ public static class TargetedScanQueryBuilder
 
         if (prepared.Count == 0)
             throw new ArgumentException("At least one search term is required.", nameof(terms));
-        if (prepared.Any(t => t.Contains('"') || t.Contains(':')))
-            throw new ArgumentException("Search terms must not contain quotes or ':' operators.", nameof(terms));
+        var offender = prepared.FirstOrDefault(t => t.Contains('"') || t.Contains(':'));
+        if (offender is not null)
+            throw new ArgumentException(
+                $"Search term '{offender}' must not contain quotes or ':' operators.", nameof(terms));
 
         return prepared;
     }

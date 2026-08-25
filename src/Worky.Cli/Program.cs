@@ -102,6 +102,13 @@ async Task<int> RunScanAsync(string[] args)
         return 2;
     }
 
+    if (targeted && interests is not null && !TargetedScanQueryBuilder.TryValidateTerms(interests, out var termsError))
+    {
+        Console.WriteLine(termsError);
+        Console.WriteLine(ScanUsage);
+        return 2;
+    }
+
     var token = Environment.GetEnvironmentVariable("WORKY_BEARER_TOKEN");
     if (string.IsNullOrWhiteSpace(token))
     {
@@ -184,6 +191,11 @@ async Task<int> RunScanAsync(string[] args)
     {
         Console.Error.WriteLine(ex.Message);
         return 1;
+    }
+    catch (ArgumentException ex)
+    {
+        Console.Error.WriteLine(ex.Message);
+        return 2;
     }
 }
 

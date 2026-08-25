@@ -98,4 +98,38 @@ public class TargetedScanQueryBuilderTests
     [Fact]
     public void EmptyAuthorSetYieldsNoQueries() =>
         Assert.Empty(TargetedScanQueryBuilder.BuildQueries([], Terms));
+
+    [Theory]
+    [InlineData("\"we're hiring\"")]
+    [InlineData("rust:lang")]
+    public void TryValidateTermsRejectsTermsWithQuotesOrColons(string term)
+    {
+        Assert.False(TargetedScanQueryBuilder.TryValidateTerms([term, "rust"], out var error));
+        Assert.Equal($"Search term '{term}' must not contain quotes or ':' operators.", error);
+    }
+
+    [Fact]
+    public void TryValidateTermsRejectsOversizedTerm()
+    {
+        var oversized = new string('x', 446);
+
+        Assert.False(TargetedScanQueryBuilder.TryValidateTerms([oversized], out var error));
+
+        Assert.Contains("480-character", error);
+        Assert.Contains("20-operator", error);
+    }
+
+    [Fact]
+    public void TryValidateTermsRejectsWhitespaceOnlyTermSets()
+    {
+        Assert.False(TargetedScanQueryBuilder.TryValidateTerms(["", "   "], out var error));
+        Assert.Equal("At least one search term is required.", error);
+    }
+
+    [Fact]
+    public void TryValidateTermsAcceptsDefaultTerms()
+    {
+        Assert.True(TargetedScanQueryBuilder.TryValidateTerms(TargetedScanQueryBuilder.DefaultTerms, out var error));
+        Assert.Null(error);
+    }
 }

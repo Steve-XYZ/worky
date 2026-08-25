@@ -27,6 +27,14 @@ public class PkceTests
     }
 
     [Fact]
+    public void GeneratedVerifiersAreUnique()
+    {
+        var verifiers = Enumerable.Range(0, 20).Select(_ => Pkce.GenerateVerifier()).ToHashSet();
+
+        Assert.Equal(20, verifiers.Count);
+    }
+
+    [Fact]
     public void ChallengeIsUnpaddedBase64UrlSha256OfVerifier()
     {
         var verifier = Pkce.GenerateVerifier();

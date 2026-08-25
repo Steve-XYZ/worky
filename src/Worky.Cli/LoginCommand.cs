@@ -76,7 +76,7 @@ public static class LoginCommand
                 UserName = me.UserName,
             });
 
-            Console.WriteLine($"Logged in as @{me.UserName}. Credentials stored in {AuthFilePath()}.");
+            Console.WriteLine($"Logged in as @{me.UserName}. Credentials stored in {AuthFileStore.DefaultPath}.");
             return 0;
         }
         catch (XApiException ex)
@@ -109,7 +109,4 @@ public static class LoginCommand
         Console.Error.WriteLine(
             $"If X rejected the redirect, register this exact URL as a User authentication redirect URI "
             + $"in your app on the X developer portal: {redirectUri}");
-
-    static string AuthFilePath() =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".worky", "auth.json");
 }

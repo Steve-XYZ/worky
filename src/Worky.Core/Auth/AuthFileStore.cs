@@ -5,13 +5,18 @@ namespace Worky.Core.Auth;
 
 public sealed class AuthFileStore : IAuthSessionStore
 {
+    public static readonly string DefaultDirectory = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".worky");
+
+    public static string DefaultPath => Path.Combine(DefaultDirectory, "auth.json");
+
     static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     readonly string _directory;
     readonly string _path;
 
     public AuthFileStore()
-        : this(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".worky")) { }
+        : this(DefaultDirectory) { }
 
     public AuthFileStore(string directory)
     {

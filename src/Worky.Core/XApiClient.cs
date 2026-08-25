@@ -1,6 +1,7 @@
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Text.Json;
 using System.Text.Json.Serialization;
+using Worky.Core.Auth;
 
 namespace Worky.Core;
 
@@ -14,12 +15,20 @@ public sealed class XApiException(int statusCode, string body)
     public int StatusCode { get; } = statusCode;
 }
 
-public sealed class XApiClient(HttpClient http)
+public sealed class XApiClient(HttpClient http, IAuthTokenProvider authToken)
 {
-    static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-
     const string TweetFields = "created_at,author_id,entities";
     const string UserFields = "username,name,description";
+
+    public async Task<XUser> GetMeAsync(CancellationToken ct = default)
+    {
+        using var response = await GetAsync("users/me", ct);
+        await EnsureSuccessAsync(response, ct);
+
+        var payload = await response.Content.ReadFromJsonAsync<MeResponseDto>(ApiJson.Options, ct);
+        var user = payload?.Data ?? throw new XApiException((int)response.StatusCode, "empty users/me response");
+        return new XUser(user.Id, user.Username, user.Name, user.Description);
+    }
 
     public async Task<IReadOnlyList<PostWithAuthor>> ScanRecentAsync(
         string query, int maxPosts, CancellationToken ct = default)
@@ -51,10 +60,10 @@ public sealed class XApiClient(HttpClient http)
         };
         if (nextToken is not null) qs.Add($"next_token={Uri.EscapeDataString(nextToken)}");
 
-        using var response = await http.GetAsync($"tweets/search/recent?{string.Join("&", qs)}", ct);
+        using var response = await GetAsync($"tweets/search/recent?{string.Join("&", qs)}", ct);
         await EnsureSuccessAsync(response, ct);
 
-        var payload = await response.Content.ReadFromJsonAsync<SearchResponseDto>(JsonOptions, ct);
+        var payload = await response.Content.ReadFromJsonAsync<SearchResponseDto>(ApiJson.Options, ct);
         var users = (payload?.Includes?.Users ?? [])
             .ToDictionary(u => u.Id, u => new XUser(u.Id, u.Username, u.Name, u.Description));
         var items = (payload?.Data ?? [])
@@ -76,10 +85,10 @@ public sealed class XApiClient(HttpClient http)
             var qs = $"max_results=100&user.fields={UserFields}";
             if (cursor is not null) qs += $"&pagination_token={Uri.EscapeDataString(cursor)}";
 
-            using var response = await http.GetAsync($"users/{userId}/following?{qs}", ct);
+            using var response = await GetAsync($"users/{userId}/following?{qs}", ct);
             await EnsureSuccessAsync(response, ct);
 
-            var payload = await response.Content.ReadFromJsonAsync<UsersResponseDto>(JsonOptions, ct);
+            var payload = await response.Content.ReadFromJsonAsync<UsersResponseDto>(ApiJson.Options, ct);
             results.AddRange((payload?.Data ?? [])
                 .Select(u => new XUser(u.Id, u.Username, u.Name, u.Description)));
             cursor = payload?.Meta?.NextToken;
@@ -87,6 +96,14 @@ public sealed class XApiClient(HttpClient http)
         while (cursor is not null);
 
         return results;
+    }
+
+    async Task<HttpResponseMessage> GetAsync(string pathAndQuery, CancellationToken ct)
+    {
+        var token = await authToken.GetTokenAsync(ct);
+        using var request = new HttpRequestMessage(HttpMethod.Get, pathAndQuery);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        return await http.SendAsync(request, ct);
     }
 
     static IReadOnlyList<string> ExtractUrls(EntitiesDto? entities) =>
@@ -138,3 +155,6 @@ internal sealed record UserDto(
 internal sealed record MetaDto(
     [property: JsonPropertyName("next_token")] string? NextToken,
     [property: JsonPropertyName("result_count")] int ResultCount);
+
+internal sealed record MeResponseDto(
+    [property: JsonPropertyName("data")] UserDto? Data);

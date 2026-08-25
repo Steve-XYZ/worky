@@ -23,6 +23,24 @@ read; keep `--limit` sensible while calibrating queries.
 
 ## Run
 
+### Login (user context)
+
+```
+export WORKY_CLIENT_ID=...
+dotnet run --project src/Worky.Cli -- login
+```
+
+Prerequisites: an X developer app with OAuth 2.0 **User authentication** enabled
+and its client id exported as `WORKY_CLIENT_ID`. The CLI prints a callback URL
+(`http://127.0.0.1:<random port>/callback`) before opening the consent page;
+register that exact URL as a redirect URI in your app's User authentication
+settings, or login fails and the CLI repeats it. Scopes are the minimum for the
+roadmap: `tweet.read users.read follows.read offline.access` (read your network,
+keep the login refreshable). Tokens persist to `~/.worky/auth.json` with
+owner-only permissions, refresh transparently, and are never printed.
+
+### Scan (app bearer)
+
 ```
 dotnet run --project src/Worky.Cli -- scan
 dotnet run --project src/Worky.Cli -- scan --query '"backend engineer" hiring -is:retweet lang:en' --limit 200
@@ -34,9 +52,9 @@ Output ranks matched posts by signal score, then recency, with the reason for ea
 ## Layout
 
 ```
-src/Worky.Core         Domain models, X API v2 client, job-signal classifier, ranker
-src/Worky.Cli          Terminal entry point (`scan` command)
-tests/Worky.Core.Tests xUnit tests for the classifier and ranker
+src/Worky.Core         Domain models, X API v2 client, OAuth 2.0 PKCE flow, job-signal classifier, ranker
+src/Worky.Cli          Terminal entry point (`login`, `scan` commands)
+tests/Worky.Core.Tests xUnit tests for the classifier, ranker, and auth plumbing
 ```
 
 ## Roadmap

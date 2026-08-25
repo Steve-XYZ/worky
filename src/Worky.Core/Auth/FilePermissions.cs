@@ -1,4 +1,5 @@
 using System.IO;
+using Microsoft.Win32.SafeHandles;
 
 namespace Worky.Core.Auth;
 

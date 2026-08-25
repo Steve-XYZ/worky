@@ -142,7 +142,7 @@ public class TargetedScanServiceTests : IDisposable
     {
         Store().Save(Snapshot(Now - TimeSpan.FromDays(1),
             new FollowedUser("low", "low_priority_user", "Plain", null),
-            new FollowedUser("high", "high_priority_user", "rustacean", null),
+            new FollowedUser("high", "high_priority_user", "rust dev", null),
             new FollowedUser("mid", "mid_priority_user", "gamer", null)));
         var handler = new RecordingHandler(new Queue<HttpResponseMessage>([SearchOk()]));
         using var http = new HttpClient(handler) { BaseAddress = new Uri("https://api.x.com/2/") };

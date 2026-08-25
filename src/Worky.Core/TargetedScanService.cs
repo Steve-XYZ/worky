@@ -27,7 +27,10 @@ public sealed class TargetedScanService(
     Graph.GraphStateFileStore store,
     IClock clock)
 {
-    public async Task<TargetedScanResult> RunAsync(TargetedScanRequest request, CancellationToken ct = default)
+    public async Task<TargetedScanResult> RunAsync(
+        TargetedScanRequest request,
+        Action<IReadOnlyList<PostWithAuthor>>? onPartial = null,
+        CancellationToken ct = default)
     {
         var state = store.Load();
         if (state is null) return new TargetedScanResult.MissingSnapshot();
@@ -51,6 +54,7 @@ public sealed class TargetedScanService(
             if (collected.Count >= request.Limit) break;
             var page = await api.SearchRecentAsync(query, Math.Clamp(request.Limit - collected.Count, 10, 100), ct: ct);
             collected.AddRange(page.Items);
+            onPartial?.Invoke(collected.ToArray());
         }
         var posts = collected.Take(request.Limit).ToList();
 

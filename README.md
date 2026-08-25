@@ -84,6 +84,51 @@ ingestion timestamp. Each page reads up to 100 accounts on X's pay-per-use API;
 the default cap is 5 pages (~500 authors). A snapshot younger than 7 days is
 reused and no calls are made; pass `--refresh-graph` to force a new one.
 
+## Cost & limits
+
+X bills Worky's reads on the pay-per-use tier. The prices below are approximations
+from X's published pay-per-use rates, held as named constants in
+`src/Worky.Core/CostEstimator.cs` — **measure them against your real developer
+console before trusting any dollar figure**.
+
+| Read type                           | Approx. price |
+|-------------------------------------|---------------|
+| Post read (third-party, app bearer) | $0.005        |
+| User data read                      | $0.010        |
+| Owned read                          | $0.001        |
+
+Every command prints `estimated cost: $X.XX–$Y.YY` before it makes any HTTP call.
+The floor prices all planned reads at the owned rate; the ceiling prices them at the
+most expensive rate the command's shape could trigger — targeted scans additionally
+assume one user read per requested author cap, and sync-graph assumes full
+100-account pages up to `--max-pages`. After each run the CLI prints an
+`actual reads:` line: a response-volume-based estimate (`~`) of what the run
+returned, not a bill from X.
+
+### Login setup
+
+1. In your X developer app enable **User authentication** (OAuth 2.0).
+2. Register the callback URL as a redirect URI: the CLI binds a random local port,
+   so run `worky login` once, copy the exact printed
+   `http://127.0.0.1:<port>/callback`, and paste it into *User authentication
+   settings → Redirect URIs*. A mismatched URI fails the login; the CLI repeats the
+   URL it expected.
+3. Export the app's client id as `WORKY_CLIENT_ID`.
+
+Scopes requested: `tweet.read users.read follows.read offline.access` — the minimum
+to read your network and keep the login refreshable. Worky deliberately requests no
+write scopes: it never posts, follows, likes, or messages on your behalf.
+
+### Rate limits
+
+X enforces per-endpoint request windows and replies with HTTP 429 carrying an
+`x-rate-limit-reset` epoch timestamp. Worky raises a typed `XRateLimitException`
+and never retries automatically. Scan commands print the reset time in your local
+timezone on stderr, then still rank and show whatever posts were already collected
+("rate limited, showing partial results") before exiting with code 1. `sync-graph`
+writes its snapshot only after every page succeeds, so a rate-limited sync leaves
+any prior snapshot untouched.
+
 ## Layout
 
 ```
@@ -97,4 +142,4 @@ tests/Worky.Core.Tests xUnit tests for the classifier, ranker, auth plumbing, gr
 - OAuth 2.0 user context: ingest who you follow and interact with to build an interest profile
 - LLM second-stage classifier and relevance ranking against your profile
 - Digest delivery (email/dashboard) and drafted reply suggestions
-- Cost meter tracking X API credit spend
+- Calibrate the cost estimator against real developer-console billing data

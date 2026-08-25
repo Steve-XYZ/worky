@@ -95,6 +95,13 @@ async Task<int> RunScanAsync(string[] args)
         }
     }
 
+    if (limit < 1)
+    {
+        Console.WriteLine("--limit must be at least 1.");
+        Console.WriteLine(ScanUsage);
+        return 2;
+    }
+
     if (maxAuthors < 1)
     {
         Console.WriteLine("--max-authors must be at least 1.");
@@ -116,12 +123,20 @@ async Task<int> RunScanAsync(string[] args)
         return 2;
     }
 
+    var estimate = targeted
+        ? CostEstimator.ForTargetedScan(maxAuthors, limit)
+        : CostEstimator.ForScan(limit);
+    Console.WriteLine($"estimated cost: {FormatUsd(estimate.FloorUsd)}–{FormatUsd(estimate.CeilingUsd)}");
+
+    var classifier = new JobSignalClassifier();
+    var snapshot = new GraphStateFileStore().Load();
+    var partialPosts = new List<PostWithAuthor>();
+    var reads = new ApiReadTracker();
+
     try
     {
         using var http = new HttpClient { BaseAddress = new Uri("https://api.x.com/2/") };
-        var client = new XApiClient(http, new StaticAuthTokenProvider(token));
-        var classifier = new JobSignalClassifier();
-        var snapshot = new GraphStateFileStore().Load();
+        var client = new XApiClient(http, new StaticAuthTokenProvider(token), reads);
 
         IReadOnlyList<PostWithAuthor> posts;
         IReadOnlyList<JobLead> leads;
@@ -135,6 +150,10 @@ async Task<int> RunScanAsync(string[] args)
                 MaxAuthors = maxAuthors,
                 Terms = interests,
                 Limit = limit,
+            }, onPartial: page =>
+            {
+                partialPosts.Clear();
+                partialPosts.AddRange(page);
             });
 
             switch (result)
@@ -159,28 +178,31 @@ async Task<int> RunScanAsync(string[] args)
         else
         {
             Console.WriteLine($"Scanning recent posts for job signals (limit {limit})...");
-            posts = await client.ScanRecentAsync(query ?? DefaultQuery, limit);
-            leads = LeadRanker.Rank(NetworkBoost.Apply(
-                    posts.Select(p => new JobLead(p.Post, p.Author, classifier.Classify(p.Post))).ToList(),
-                    snapshot))
-                .Where(l => l.Signal.IsMatch)
-                .ToList();
+            posts = await client.ScanRecentAsync(query ?? DefaultQuery, limit, onPage: page =>
+            {
+                partialPosts.Clear();
+                partialPosts.AddRange(page);
+            });
+            leads = RankLeads(posts, classifier, snapshot);
         }
 
         Console.WriteLine($"Read {posts.Count} posts, {leads.Count} with job signals.");
-        foreach (var lead in leads)
-        {
-            Console.WriteLine();
-            Console.WriteLine(
-                $"@{lead.Author.UserName}  {lead.Signal.Score.ToString("0.0", CultureInfo.InvariantCulture)}  {lead.Permalink}");
-            if (lead.Post.CreatedAt is { } at)
-                Console.WriteLine(at.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture));
-            var text = lead.Post.Text.Length > 200 ? lead.Post.Text[..200] + "..." : lead.Post.Text;
-            Console.WriteLine("  " + text.ReplaceLineEndings(" "));
-            Console.WriteLine("  signals: " + string.Join(", ", lead.Signal.Reasons));
-        }
-
+        PrintLeads(leads);
+        Console.WriteLine(ActualsLine(reads));
         return 0;
+    }
+    catch (XRateLimitException ex)
+    {
+        Console.Error.WriteLine(RateLimitMessage(ex));
+        if (partialPosts.Count > 0)
+        {
+            var leadsSoFar = RankLeads(partialPosts, classifier, snapshot);
+            Console.WriteLine("Rate limited by the X API; showing partial results.");
+            Console.WriteLine($"Read {partialPosts.Count} posts so far, {leadsSoFar.Count} with job signals.");
+            PrintLeads(leadsSoFar);
+        }
+        Console.WriteLine(ActualsLine(reads));
+        return 1;
     }
     catch (XApiException ex)
     {
@@ -236,16 +258,27 @@ async Task<int> RunSyncGraphAsync(string[] args)
         return 2;
     }
 
+    var estimate = CostEstimator.ForSyncGraph(maxPages);
+    Console.WriteLine($"estimated cost: {FormatUsd(estimate.FloorUsd)}–{FormatUsd(estimate.CeilingUsd)}");
+
     try
     {
         using var http = new HttpClient { BaseAddress = new Uri("https://api.x.com/2/") };
+        var reads = new ApiReadTracker();
         var api = new XApiClient(
             http,
-            new UserAuthTokenProvider(new AuthFileStore(), new XOAuthClient(http, clientId), SystemClock.Instance));
+            new UserAuthTokenProvider(new AuthFileStore(), new XOAuthClient(http, clientId), SystemClock.Instance),
+            reads);
         var service = new GraphSyncService(api, new GraphStateFileStore(), SystemClock.Instance);
 
         await service.RunAsync(new GraphSyncOptions { MaxPages = maxPages, Refresh = refresh }, Console.WriteLine);
+        Console.WriteLine(ActualsLine(reads));
         return 0;
+    }
+    catch (XRateLimitException ex)
+    {
+        Console.Error.WriteLine(RateLimitMessage(ex));
+        return 1;
     }
     catch (XApiException ex)
     {
@@ -258,3 +291,44 @@ async Task<int> RunSyncGraphAsync(string[] args)
         return 1;
     }
 }
+
+static IReadOnlyList<JobLead> RankLeads(
+    IReadOnlyList<PostWithAuthor> posts, JobSignalClassifier classifier, GraphState? snapshot) =>
+    LeadRanker.Rank(NetworkBoost.Apply(
+            posts.Select(p => new JobLead(p.Post, p.Author, classifier.Classify(p.Post))).ToList(),
+            snapshot))
+        .Where(l => l.Signal.IsMatch)
+        .ToList();
+
+static void PrintLeads(IReadOnlyList<JobLead> leads)
+{
+    foreach (var lead in leads)
+    {
+        Console.WriteLine();
+        Console.WriteLine(
+            $"@{lead.Author.UserName}  {lead.Signal.Score.ToString("0.0", CultureInfo.InvariantCulture)}  {lead.Permalink}");
+        if (lead.Post.CreatedAt is { } at)
+            Console.WriteLine(at.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture));
+        var text = lead.Post.Text.Length > 200 ? lead.Post.Text[..200] + "..." : lead.Post.Text;
+        Console.WriteLine("  " + text.ReplaceLineEndings(" "));
+        Console.WriteLine("  signals: " + string.Join(", ", lead.Signal.Reasons));
+    }
+}
+
+static string FormatUsd(decimal value) => "$" + value.ToString("0.00", CultureInfo.InvariantCulture);
+
+static string ActualsLine(ApiReadTracker reads)
+{
+    var parts = new List<string>();
+    if (reads.Posts > 0) parts.Add($"{reads.Posts} posts");
+    if (reads.Users > 0) parts.Add($"{reads.Users} users");
+    if (parts.Count == 0) parts.Add("0 posts");
+    return "actual reads: " + string.Join(", ", parts)
+        + $" (~{FormatUsd(reads.EstimatedPostCostUsd + reads.EstimatedUserCostUsd)})";
+}
+
+static string RateLimitMessage(XRateLimitException ex) =>
+    "Rate limited by the X API on " + ex.Endpoint
+    + (ex.ResetAt is { } reset
+        ? $"; the window resets at {reset.ToLocalTime():yyyy-MM-dd HH:mm} local time."
+        : "; the reset time is unknown.");

@@ -5,8 +5,9 @@ outreach. Advisory only: Worky reads, ranks, and drafts — you send everything.
 
 ## Status
 
-Scaffold. Current slice: recent-search scanner + heuristic job-signal classifier +
-ranked digest in the terminal.
+Scaffold. Current slices: recent-search scanner + heuristic job-signal classifier +
+ranked digest in the terminal, and OAuth user-context graph sync into
+`~/.worky/state.json`.
 
 ## Compliance stance
 
@@ -49,12 +50,26 @@ dotnet run --project src/Worky.Cli -- scan --query '"backend engineer" hiring -i
 Default query targets hiring phrases in English, excluding replies and reposts.
 Output ranks matched posts by signal score, then recency, with the reason for each match.
 
+### Sync graph (user context)
+
+```
+dotnet run --project src/Worky.Cli -- sync-graph
+dotnet run --project src/Worky.Cli -- sync-graph --max-pages 10 --refresh-graph
+```
+
+Prerequisites: a stored login (`worky login`) and `WORKY_CLIENT_ID` exported for
+transparent token refresh. Snapshots who you follow into `~/.worky/state.json`:
+your user id/username, followed users (id, username, name, description), and an
+ingestion timestamp. Each page reads up to 100 accounts on X's pay-per-use API;
+the default cap is 5 pages (~500 authors). A snapshot younger than 7 days is
+reused and no calls are made; pass `--refresh-graph` to force a new one.
+
 ## Layout
 
 ```
-src/Worky.Core         Domain models, X API v2 client, OAuth 2.0 PKCE flow, job-signal classifier, ranker
-src/Worky.Cli          Terminal entry point (`login`, `scan` commands)
-tests/Worky.Core.Tests xUnit tests for the classifier, ranker, and auth plumbing
+src/Worky.Core         Domain models, X API v2 client, OAuth 2.0 PKCE flow, job-signal classifier, ranker, graph state
+src/Worky.Cli          Terminal entry point (`login`, `scan`, `sync-graph` commands)
+tests/Worky.Core.Tests xUnit tests for the classifier, ranker, auth plumbing, and graph sync
 ```
 
 ## Roadmap

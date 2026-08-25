@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
@@ -9,10 +10,17 @@ public sealed record PostWithAuthor(Post Post, XUser Author);
 
 public sealed record SearchPage(IReadOnlyList<PostWithAuthor> Items, string? NextToken);
 
-public sealed class XApiException(int statusCode, string body)
+public class XApiException(int statusCode, string body)
     : Exception($"X API returned {statusCode}: {body}")
 {
     public int StatusCode { get; } = statusCode;
+}
+
+public sealed class XRateLimitException(string endpoint, DateTimeOffset? resetAt, int statusCode, string body)
+    : XApiException(statusCode, body)
+{
+    public string Endpoint { get; } = endpoint;
+    public DateTimeOffset? ResetAt { get; } = resetAt;
 }
 
 public sealed class XApiClient(HttpClient http, IAuthTokenProvider authToken)
@@ -23,7 +31,7 @@ public sealed class XApiClient(HttpClient http, IAuthTokenProvider authToken)
     public async Task<XUser> GetMeAsync(CancellationToken ct = default)
     {
         using var response = await GetAsync("users/me", ct);
-        await EnsureSuccessAsync(response, ct);
+        await EnsureSuccessAsync(response, "users/me", ct);
 
         var payload = await response.Content.ReadFromJsonAsync<MeResponseDto>(ApiJson.Options, ct);
         var user = payload?.Data ?? throw new XApiException((int)response.StatusCode, "empty users/me response");
@@ -60,8 +68,9 @@ public sealed class XApiClient(HttpClient http, IAuthTokenProvider authToken)
         };
         if (nextToken is not null) qs.Add($"next_token={Uri.EscapeDataString(nextToken)}");
 
-        using var response = await GetAsync($"tweets/search/recent?{string.Join("&", qs)}", ct);
-        await EnsureSuccessAsync(response, ct);
+        var pathAndQuery = $"tweets/search/recent?{string.Join("&", qs)}";
+        using var response = await GetAsync(pathAndQuery, ct);
+        await EnsureSuccessAsync(response, pathAndQuery, ct);
 
         var payload = await response.Content.ReadFromJsonAsync<SearchResponseDto>(ApiJson.Options, ct);
         var users = (payload?.Includes?.Users ?? [])
@@ -93,8 +102,9 @@ public sealed class XApiClient(HttpClient http, IAuthTokenProvider authToken)
             var qs = $"max_results=100&user.fields={UserFields}";
             if (cursor is not null) qs += $"&pagination_token={Uri.EscapeDataString(cursor)}";
 
-            using var response = await GetAsync($"users/{userId}/following?{qs}", ct);
-            await EnsureSuccessAsync(response, ct);
+            var pathAndQuery = $"users/{userId}/following?{qs}";
+            using var response = await GetAsync(pathAndQuery, ct);
+            await EnsureSuccessAsync(response, pathAndQuery, ct);
 
             var payload = await response.Content.ReadFromJsonAsync<UsersResponseDto>(ApiJson.Options, ct);
             results.AddRange((payload?.Data ?? [])
@@ -121,10 +131,25 @@ public sealed class XApiClient(HttpClient http, IAuthTokenProvider authToken)
             .OfType<string>()
             .ToList();
 
-    static async Task EnsureSuccessAsync(HttpResponseMessage response, CancellationToken ct)
+    static string EndpointOf(string pathAndQuery) => pathAndQuery.Split('?')[0];
+
+    static DateTimeOffset? ParseResetAt(HttpResponseMessage response)
+    {
+        if (!response.Headers.NonValidated.Contains("x-rate-limit-reset"))
+            return null;
+        var header = response.Headers.NonValidated["x-rate-limit-reset"];
+        return long.TryParse(header.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var epoch)
+            ? DateTimeOffset.FromUnixTimeSeconds(epoch)
+            : null;
+    }
+
+    static async Task EnsureSuccessAsync(HttpResponseMessage response, string pathAndQuery, CancellationToken ct)
     {
         if (response.IsSuccessStatusCode) return;
         var body = await response.Content.ReadAsStringAsync(ct);
+        if ((int)response.StatusCode == 429)
+            throw new XRateLimitException(
+                EndpointOf(pathAndQuery), ParseResetAt(response), (int)response.StatusCode, body);
         throw new XApiException((int)response.StatusCode, body);
     }
 }

@@ -76,12 +76,20 @@ public sealed class XApiClient(HttpClient http, IAuthTokenProvider authToken)
         return new SearchPage(items, payload?.Meta?.NextToken);
     }
 
-    public async Task<IReadOnlyList<XUser>> GetFollowingAsync(string userId, CancellationToken ct = default)
+    public async Task<IReadOnlyList<XUser>> GetFollowingAsync(
+        string userId,
+        int maxPages,
+        Action<int, int>? onPage = null,
+        CancellationToken ct = default)
     {
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxPages, 1);
+
         var results = new List<XUser>();
         string? cursor = null;
+        var page = 0;
         do
         {
+            page++;
             var qs = $"max_results=100&user.fields={UserFields}";
             if (cursor is not null) qs += $"&pagination_token={Uri.EscapeDataString(cursor)}";
 
@@ -92,8 +100,9 @@ public sealed class XApiClient(HttpClient http, IAuthTokenProvider authToken)
             results.AddRange((payload?.Data ?? [])
                 .Select(u => new XUser(u.Id, u.Username, u.Name, u.Description)));
             cursor = payload?.Meta?.NextToken;
+            onPage?.Invoke(page, results.Count);
         }
-        while (cursor is not null);
+        while (cursor is not null && page < maxPages);
 
         return results;
     }

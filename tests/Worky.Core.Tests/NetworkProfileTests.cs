@@ -83,7 +83,7 @@ public class NetworkProfileTests
     {
         var state = State(
             new FollowedUser("1", "zoe", "hiring rust", null),
-            new FollowedUser("2", "ada", null, null));
+            new FollowedUser("2", "ada", "", null));
 
         var profile = NetworkProfile.Build(state, []);
 

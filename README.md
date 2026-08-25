@@ -50,6 +50,26 @@ dotnet run --project src/Worky.Cli -- scan --query '"backend engineer" hiring -i
 Default query targets hiring phrases in English, excluding replies and reposts.
 Output ranks matched posts by signal score, then recency, with the reason for each match.
 
+When `~/.worky/state.json` exists, both scan modes add a `network match` reason and a
++1.0 signal bonus to posts authored by anyone you follow. A missing or corrupt snapshot
+simply leaves scores untouched.
+
+### Targeted scan (follow graph)
+
+```
+dotnet run --project src/Worky.Cli -- scan --targeted
+dotnet run --project src/Worky.Cli -- scan --targeted --interests "rust,gamedev" --max-authors 50 --limit 200
+```
+
+Prerequisites: a snapshot from `worky sync-graph` younger than 7 days; targeted scans
+read but never refresh it. The search aims at your follow graph instead of the whole
+platform: followed authors are ranked by interest-keyword overlap with their name and
+bio, the top `--max-authors` (default 100) are batched into `from:` queries that respect
+X's query budgets, and each batch runs one recent search on the app bearer.
+`--interests "a,b,c"` replaces the default hiring phrases (`hiring`, `"we're hiring"`,
+`"job opening"`, `"open role"`, `"join our team"`) in the queries and steers author
+ranking.
+
 ### Sync graph (user context)
 
 ```
@@ -67,9 +87,9 @@ reused and no calls are made; pass `--refresh-graph` to force a new one.
 ## Layout
 
 ```
-src/Worky.Core         Domain models, X API v2 client, OAuth 2.0 PKCE flow, job-signal classifier, ranker, graph state
+src/Worky.Core         Domain models, X API v2 client, OAuth 2.0 PKCE flow, job-signal classifier, ranker, graph state, targeted scan engine
 src/Worky.Cli          Terminal entry point (`login`, `scan`, `sync-graph` commands)
-tests/Worky.Core.Tests xUnit tests for the classifier, ranker, auth plumbing, and graph sync
+tests/Worky.Core.Tests xUnit tests for the classifier, ranker, auth plumbing, graph sync, and scan targeting
 ```
 
 ## Roadmap

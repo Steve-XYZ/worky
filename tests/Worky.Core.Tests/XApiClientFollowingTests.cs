@@ -18,15 +18,16 @@ public class XApiClientFollowingTests
         }
     }
 
+    sealed record FakeFollowingUser(string Id, string Username, string Name, string? Description);
+
     static HttpResponseMessage FollowingPage(int page, string? nextToken)
     {
-        string? described = $"desc {page}";
         var payload = new
         {
             data = new[]
             {
-                new { id = $"u-{page}a", username = $"user_{page}a", name = $"User {page}A", description = (string?)null },
-                new { id = $"u-{page}b", username = $"user_{page}b", name = $"User {page}B", description = described },
+                new FakeFollowingUser($"u-{page}a", $"user_{page}a", $"User {page}A", null),
+                new FakeFollowingUser($"u-{page}b", $"user_{page}b", $"User {page}B", $"desc {page}"),
             },
             meta = new { next_token = nextToken, result_count = 2 },
         };

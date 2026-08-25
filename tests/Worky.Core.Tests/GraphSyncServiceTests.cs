@@ -40,12 +40,14 @@ public class GraphSyncServiceTests : IDisposable
         data = new { id = "u-1", username = "alice", name = "Alice", description = (string?)"me" },
     });
 
+    sealed record FakeFollowingUser(string Id, string Username, string Name, string? Description);
+
     static HttpResponseMessage FollowingPage(int page, string? nextToken) => Json(new
     {
         data = new[]
         {
-            new { id = $"f-{page}a", username = $"followed_{page}a", name = $"Followed {page}A", description = (string?)null },
-            new { id = $"f-{page}b", username = $"followed_{page}b", name = $"Followed {page}B", description = $"desc {page}" },
+            new FakeFollowingUser($"f-{page}a", $"followed_{page}a", $"Followed {page}A", null),
+            new FakeFollowingUser($"f-{page}b", $"followed_{page}b", $"Followed {page}B", $"desc {page}"),
         },
         meta = new { next_token = nextToken, result_count = 2 },
     });
